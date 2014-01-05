@@ -424,15 +424,15 @@ public class Game  extends JFrame{
 		 * 
 		 */
 		private static final long serialVersionUID = 7914463665577416917L;
-		private static final String aboutMessage = "Programmer: John Hill\n" +
-				"Course: CSC 133. Object-Oriented Computer Graphics Programming \n" +
+		private static final String aboutMessage = 
 				"Version: 0.4.4\n" +
 				"Release Notes:\n" +
 				"  - added plasma wave, hit detection still needs work\n" +
 				"  - added Spike Grenade for player only\n" +
 				"  - added zoom and pan functions\n" +
 				"  - updated help menu\n" +
-				"  - adding debug mode\n";
+				"  - adding debug mode\n" +
+				"  - added health bar for tanks";
 		public AboutCommand(){
 			super("About");
 		}
