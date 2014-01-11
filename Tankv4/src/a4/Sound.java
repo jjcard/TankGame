@@ -24,18 +24,22 @@ public class Sound {
 			//log
 			e.printStackTrace();
 		} catch (Exception e){
+			//log
 			e.printStackTrace();
 		}
 	}
 	
 	public void play(){
-		myClip.play();
+		if (myClip != null)
+			myClip.play();
 	}
 	public void loop(){
-		myClip.loop();
+		if (myClip != null)
+			myClip.loop();
 	}
 	public void stop(){
-		myClip.stop();
+		if (myClip != null)
+			myClip.stop();
 	}
 
 }
