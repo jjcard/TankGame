@@ -11,8 +11,7 @@ import a4.gameObjects.AimAndFireStrategy;
 import a4.gameObjects.FiringStrategy;
 import a4.gameObjects.GameObject;
 import a4.gameObjects.ICollidable;
-import a4.gameObjects.ISelectable;
-import a4.gameObjects.MovableGameObject;
+import a4.gameObjects.LandscapeGameObject;
 import a4.gameObjects.RapidFireStrategy;
 import a4.gameObjects.Rock;
 import a4.gameObjects.SmartFireStrategy;
@@ -69,19 +68,27 @@ public class GameWorld implements IObservable, IGameWorld {
 	
 	
 	private Tank playerTank;
-	private List<GameObject> gameObjects;
+	/**
+	 * for use with the iterator
+	 */
+	private LinkedList<GameObject> listObjects;
+	private List<Tank> tanks;
+	private List<Projectile> projectiles;
+	private List<LandscapeGameObject> landscape;
 	private List<IObserver> observers;
 	
 	private static final int numStratagies = 3;
 	private int strategyCount = 0;
 	public GameWorld(int xBound, int yBound, int timeInterval) {
-		//GameObject.setBounds(xBound, yBound);
 		this.xBound = xBound;
 		this.yBound = yBound;
 		this.timeInterval = timeInterval;
 		dimensions = new ScreenPanelDimensions(xBound, yBound, 0, 0, xBound, yBound);
 		
-		gameObjects = new LinkedList<GameObject>();
+		listObjects = new LinkedList<GameObject>();
+		tanks = new LinkedList<Tank>();
+		landscape = new LinkedList<LandscapeGameObject>();
+		projectiles = new LinkedList<Projectile>();
 		observers = new LinkedList<IObserver>();
 	}
 	
@@ -94,7 +101,10 @@ public class GameWorld implements IObservable, IGameWorld {
 	}
 	public void InitializeGameWorld(int numEnemyTanks, int numRocks, int numTrees){
 		
-		gameObjects = new LinkedList<GameObject>();
+		listObjects = new LinkedList<GameObject>();
+		tanks = new LinkedList<Tank>();
+		landscape = new LinkedList<LandscapeGameObject>();
+		projectiles = new LinkedList<Projectile>();
 		
 		playerTank = getRandomPlayerTank(0);
 
@@ -107,8 +117,8 @@ public class GameWorld implements IObservable, IGameWorld {
 				}
 				tank = getRandomTank();
 			}
-			
-			gameObjects.add(tank);
+			addTank(tank);
+			//tanks.add(tank);
 		}
 		
 		for (int j = 0; j < numRocks; j++){
@@ -119,7 +129,9 @@ public class GameWorld implements IObservable, IGameWorld {
 				}
 				rock = getRandomRock(j);
 			}
-			gameObjects.add(rock);
+			
+			addLandscapeObject(rock);
+			//landscape.add(rock);
 		}
 		
 		for (int k = 0; k < numTrees; k++){
@@ -130,10 +142,13 @@ public class GameWorld implements IObservable, IGameWorld {
 				}
 				tree = getRandomTree(k);
 			}
-			gameObjects.add(tree);
+			
+			addLandscapeObject(tree);
+			//landscape.add(tree);
 		}
 		
-		gameObjects.add(playerTank);
+		addTank(playerTank);
+		//tanks.add(playerTank);
 		
 		//reset counts
 		lives = startingLives;
@@ -147,6 +162,16 @@ public class GameWorld implements IObservable, IGameWorld {
 		
 		
 	}
+	
+	private void addTank(Tank t){
+		tanks.add(t);
+		listObjects.add(t);
+	}
+	private void addLandscapeObject(LandscapeGameObject l){
+		landscape.add(l);
+		listObjects.add(l);
+	}
+
 	
 
 	/**
@@ -234,86 +259,154 @@ public class GameWorld implements IObservable, IGameWorld {
 	public void tick(){
 		
 		if (play){
-			Iterator<GameObject> iter = iterator();
-			GameObject go;
-			while (iter.hasNext()){
-				go = iter.next();
-				if (go instanceof MovableGameObject){
-					((MovableGameObject) go).Move(timeInterval);
-					if (go instanceof Projectile){
-						if (!((Projectile) go).hasLifeTime()){
-							//Projectile dies
-							iter.remove();
-						}
-					} else if (go instanceof Tank){
-						if(((Tank) go).shouldFire()){
-							fireProjectile((Tank) go, ProjectileTypes.MISSILE);
-						}
-					}
-				}
-			}
-			gameClock++;
 			
-			iter = iterator();
-			HashSet<GameObject> destroyedList = new HashSet<GameObject>();
-			HashSet<Tank> tanksHit = new HashSet<Tank>();
-			while (iter.hasNext()){
-				ICollidable hit = (ICollidable) iter.next();
-				
-				
-				hit.clearCollidedWith();
-				
-				Iterator<GameObject> colIter = iterator();
-				boolean destroyed = false;
-				boolean tankAndHit = false;
-				while (colIter.hasNext()){
-					ICollidable hitWith = (ICollidable) colIter.next();
-					if (hit.collidesWith(hitWith)){
-						
-						hit.addCollision(hitWith);
-
-						destroyed = destroyed ||hit.handleCollision(hitWith);
-	
-						if (hit instanceof Tank){
-							if (hitWith instanceof Projectile){
-								if (hit != playerTank){
-									increaseScore(enemyTankHitPoints);	
-								}
-							} else {
-								//Tank has hit tree, rock, or other Tank
-								tankAndHit = true;
-							}
-						}
-					}
-				}					
-				if (destroyed){
-						destroyedList.add((GameObject) hit);
-				} else if (tankAndHit){
-					//tanks collided with non-missiles
-					tanksHit.add((Tank) hit);
-				}
-				
-	
-			}			
+			moveWorld();
 			
-			removeDestroyed(destroyedList);
-			
-			handleTankCollisions(tanksHit);
+			handleCollisions();
 		}
 
 		
 	}
+
+
+	private void handleCollisions() {
+
+		
+		HashSet<Tank> destroyedTanks = new HashSet<Tank>();
+		HashSet<Projectile> destroyedProjectiles = new HashSet<Projectile>();
+		HashSet<Tank> tanksHit = new HashSet<Tank>();
+		handleTankCollisions(destroyedTanks, tanksHit);
+		handleProjectileCollisions(destroyedProjectiles);
+		
+		
+		
+
+		removeDestroyed(destroyedTanks, destroyedProjectiles);
+		//call after everything done
+		handleTankObstacleCollisions(tanksHit);
+		
+	}
+
+
+	private void handleProjectileCollisions(
+			HashSet<Projectile> destroyedProjectiles) {
+		boolean destroyed;
+		for (Projectile p: projectiles){
+			p.clearCollidedWith();
+			destroyed = false;
+			for (LandscapeGameObject l: landscape){
+				if (p.collidesWith(l)){
+					p.addCollision(l);
+					destroyed = destroyed || p.handleCollision(l);
+				}
+			}
+			for (Tank t: tanks){
+				if (p.collidesWith(t)){
+					p.addCollision(t);
+					destroyed = true;
+				}
+			}
+			
+			for (Projectile p2: projectiles){
+				if (p.collidesWith(p2)){
+					p.addCollision(p2);
+					destroyed = destroyed || p.handleCollision(p2);
+				}
+			}
+			if (destroyed){
+				destroyedProjectiles.add(p);
+			}
+		}
+	}
+
+
+	private void handleTankCollisions(HashSet<Tank> destroyedTanks,
+			HashSet<Tank> tanksHit) {
+		
+		boolean destroyed;
+		//Tank has hit tree, rock, or other Tank and needs to move
+		boolean tankHitObstacle;
+		for (Tank t: tanks){
+			t.clearCollidedWith();
+			tankHitObstacle = false;
+			destroyed = false;
+			for (LandscapeGameObject l: landscape){
+				if (t.collidesWith(l)){
+					t.addCollision(l);
+					t.handleCollision(l);
+					tankHitObstacle = true;
+				}
+			}
+			
+			for (Projectile projectile: projectiles){
+				if (t.collidesWith(projectile)){
+					destroyed = destroyed || t.handleCollision(projectile);
+				}
+
+				if (t != playerTank && projectile.getSourceTank() == playerTank){
+					increaseScore(enemyTankHitPoints);	
+				}
+				
+			}
+			
+			for (Tank t2: tanks){
+				if (t.collidesWith(t2)){
+					t.addCollision(t2);
+					
+					t.handleCollision(t2);
+					
+					
+					tankHitObstacle = true;
+				}
+			}
+			
+
+			
+			if (destroyed){
+				destroyedTanks.add(t);
+			} else if (tankHitObstacle){
+				tanksHit.add(t);
+			}
+		}
+	}
+
+
+	private void moveWorld() {
+		for (Tank tank: tanks){
+			tank.Move(timeInterval);
+			if (tank.shouldFire()){
+				fireProjectile(tank, ProjectileTypes.MISSILE);
+			}
+		}
+		
+
+		Iterator<Projectile> iter = getProjectileIterator();
+		Projectile projectile;
+		while (iter.hasNext()){
+			projectile = iter.next();
+			projectile.Move(timeInterval);
+			if (!projectile.hasLifeTime()){
+				iter.remove();
+				listObjects.remove(projectile);
+			}
+		}
+		gameClock++;
+	}
 	
-	private void removeDestroyed(HashSet<GameObject> destroyedList){
-		gameObjects.removeAll(destroyedList);
+
+	
+	private void removeDestroyed(HashSet<Tank> destroyedTankList, HashSet<Projectile> destroyedProjectiles){
+		tanks.removeAll(destroyedTankList);
+		listObjects.removeAll(destroyedTankList);
+		listObjects.removeAll(destroyedProjectiles);
+		projectiles.removeAll(destroyedProjectiles);
 		
 		//add a new  tank when one is destroyed
-		for (GameObject dego: destroyedList){
-			if (dego instanceof Tank){
+		for (Tank dego: destroyedTankList){
 				if (dego == playerTank){
 					Tank player = respawnPlayerTank();
 					if (player != null){
-						gameObjects.add(player);	
+						addTank(player);
 					}
 					
 				} else {
@@ -321,16 +414,16 @@ public class GameWorld implements IObservable, IGameWorld {
 					while (collidesWithWorld(tank)){
 						tank = getRandomTank();
 					}
-					gameObjects.add(tank);	
+					addTank(tank);
 				}
-			}
 		}
 	}
-	private void handleTankCollisions(HashSet<Tank> tanksHit){
+	
+	private void handleTankObstacleCollisions(HashSet<Tank> tanksHit){
 		for (Tank hitTank: tanksHit){
 			for (ICollidable collided: hitTank.getCollidedWith()){
-				int overlap = hitTank.getCollisonOvelap(collided);
-				System.out.println((hitTank + " moving " + overlap + " from " + collided));
+				//int overlap = hitTank.getCollisonOvelap(collided);
+				//System.out.println((hitTank + " moving " + overlap + " from " + collided));
 				hitTank.MoveAmount(180.0,hitTank.getCollisonOvelap(collided) + 1);
 				
 				if (Game.debug){
@@ -349,19 +442,10 @@ public class GameWorld implements IObservable, IGameWorld {
 	}
 
 	
-	public void reverseSelectedTanks(){
-		Iterator<GameObject> iter = iterator();
-		
-		GameObject go;
-		
-		while (iter.hasNext()){
-			go = iter.next();
-			if (go instanceof Tank){
-				Tank t = (Tank) go;
-				
-				if (t.isSelected()){
-					t.turn(180);
-				}
+	public void reverseSelectedTanks(){		
+		for (Tank t: tanks){
+			if (t.isSelected()){
+				t.turn(180);
 			}
 		}
 	}
@@ -420,21 +504,10 @@ public class GameWorld implements IObservable, IGameWorld {
 		
 		if (milliesCount > 30000){
 			milliesCount = 0;
-			GameWorldIterator iter = (GameWorldIterator) iterator();
 			
-			Tank go;
-			
-			
-			while (iter.hasNext()){
-				go = iter.nextTank();
-				if (go == null){
-					//nothing to see here folks...
-					break;
-				}
-				if (go != playerTank){
-					go.setFiringStrategy(getNextFiringStratagy(go));
-				}
-			}			
+			for (Tank tank: tanks){
+				tank.setFiringStrategy(getNextFiringStratagy(tank));
+			}		
 		}
 
 	}
@@ -468,7 +541,8 @@ public class GameWorld implements IObservable, IGameWorld {
 	
 	private boolean addProjectile(Projectile missile){
 		if (missile != null){
-			gameObjects.add(missile);	
+			projectiles.add(missile);	
+			listObjects.add(missile);
 			return true;
 		}
 		return false;
@@ -508,8 +582,6 @@ public class GameWorld implements IObservable, IGameWorld {
 	 */
 	private void gameOver(){
 		gameOver = true;
-		
-
 	}
 
 	private void increaseScore(int increase){
@@ -521,32 +593,6 @@ public class GameWorld implements IObservable, IGameWorld {
 	public boolean isGameOver(){
 		return gameOver;
 	}
-	
-//	/**
-//	 * checks the object is inside the bounds of 
-//	 * the x and y axis
-//	 * @param go
-//	 * @return
-//	 */
-//	private boolean outOfBounds(GameObject go){
-//		return outOfXBounds(go) || outofYBounds(go);
-//	}
-//	/**
-//	 * checks the object is inside the bounds of the x-axis
-//	 * @param go
-//	 * @return
-//	 */
-//	private boolean outOfXBounds(GameObject go){
-//		return (go.getX() < 0 || go.getX() >= xBound);
-//	}
-//	/**
-//	 * checks the object is inside the bounds of the y-axis
-//	 * @param go
-//	 * @return
-//	 */
-//	private boolean outofYBounds(GameObject go){
-//		return (go.getY() < 0 || go.getY() >= yBound);
-//	}
 	public int getGameTime(){
 		return gameClock;
 	}
@@ -579,37 +625,20 @@ public class GameWorld implements IObservable, IGameWorld {
 
 
 	public void deselectAll(){
-		Iterator<GameObject> itr = iterator();
 		
-		GameObject go;
-		while (itr.hasNext()){
-			go = itr.next();
-			
-			if (go instanceof ISelectable){
-				 ((ISelectable)go).setSelected(false);
-
-			}
-		}	
+		for (Tank t: tanks){
+			t.setSelected(false);
+		}
 	}
 	
 	public void pointSelected(Point p, boolean controlDown){
-		
-		Iterator<GameObject> itr = iterator();
-		
-		GameObject go;
-		while (itr.hasNext()){
-			go = itr.next();
-			
-			if (go instanceof ISelectable){
-				ISelectable s =(ISelectable)go;
-				if (s.contains(p)){
-					s.setSelected(true);
-				} else if (!controlDown){
-					s.setSelected(false);
-				}
+		for (Tank t: tanks){
+			if (t.contains(p)){
+				t.setSelected(true);
+			} else if (!controlDown){
+				t.setSelected(false);
 			}
 		}
-		
 	}
 	
 	@Override
@@ -624,66 +653,15 @@ public class GameWorld implements IObservable, IGameWorld {
 	}
 	
 	public Iterator<GameObject> iterator(){
-		return new GameWorldIterator();
+		return listObjects.iterator();
 	}
-	
-	private class GameWorldIterator implements Iterator<GameObject> {
-		
-		int currIndex;
-		
-		public GameWorldIterator(){
-			currIndex = -1;
-		}
-		
-		public boolean hasNext(){
-			if (gameObjects.isEmpty()){
-				return false;
-			}
-			if (currIndex >= gameObjects.size() - 1){
-				return false;
-			}
-			return true;
-		}
-		@Override
-		public GameObject next(){
-			currIndex++;
-			return (gameObjects.get(currIndex));
-		}
-		
-		public <T extends GameObject> T next(Class<T> gameObjectClass){
-			T returnObject = null;
-			Object cur = null;
-			while (hasNext()){
-				cur = next();
-				if (gameObjectClass.isInstance(cur)){
-					returnObject = (gameObjectClass.cast(cur));
-					break;
-				}
-			}
-			
-			return returnObject;
-		
-		}
-		/**
-		 * gets the Next Tank.
-		 * Warning: even if (hasNext()) returns true
-		 * does not guarantee the return here will be 
-		 * non-null.
-		 * @return
-		 */
-		public Tank nextTank(){
-			return next(Tank.class);
-		}
-
-		@Override
-		public void remove() {
-			gameObjects.remove(currIndex);
-		}
-		
+	public Iterator<Tank> getTankIterator(){
+		return tanks.iterator();
 	}
-
-
-	
-	
-
+	public Iterator<Projectile> getProjectileIterator(){
+		return projectiles.iterator();
+	}
+	public Iterator<LandscapeGameObject> getLandscapeIterator(){
+		return landscape.iterator();
+	}
 }
